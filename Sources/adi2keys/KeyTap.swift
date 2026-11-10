@@ -19,7 +19,6 @@ final class KeyTap {
     var handler: (MediaKeyPress) -> Bool = { _ in false }
     private var tap: CFMachPort?
     private var permissionTimer: Timer?
-    private var permissionChecksLeft = 0
 
     func start() {
         DistributedNotificationCenter.default().addObserver(
@@ -37,22 +36,11 @@ final class KeyTap {
         install()
     }
 
-    /// macOS 27 doesn't reliably post the notification above when access is granted, so while
-    /// waiting at startup, check once a second for up to two minutes. Never runs once the tap exists.
+    /// macOS 27 doesn't reliably post the notification above when access is granted, so until it is,
+    /// check once a second. Stops as soon as the tap is installed; never runs once permission exists.
     private func awaitPermission() {
-        permissionChecksLeft = 120
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.checkPermission() }
-        }
-    }
-
-    private func checkPermission() {
-        permissionChecksLeft -= 1
-        install()
-        guard tap == nil else { return }
-        if permissionChecksLeft <= 0 {
-            log.notice("still no Accessibility permission; relaunch after granting it")
-            stopAwaitingPermission()
+            MainActor.assumeIsolated { self?.install() }
         }
     }
 
