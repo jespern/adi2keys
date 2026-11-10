@@ -15,7 +15,7 @@ plutil -insert CFBundleIdentifier -string org.noehr.adi2keys "$plist"
 plutil -insert CFBundleName -string adi2keys "$plist"
 plutil -insert CFBundleExecutable -string adi2keys "$plist"
 plutil -insert CFBundlePackageType -string APPL "$plist"
-plutil -insert CFBundleShortVersionString -string 1.0 "$plist"
+plutil -insert CFBundleShortVersionString -string 0.1.0 "$plist"
 plutil -insert LSMinimumSystemVersion -string 27.0 "$plist"
 plutil -insert LSUIElement -bool true "$plist"
 

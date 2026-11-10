@@ -113,6 +113,10 @@ byte sequences in RME's examples.
 swift test
 ```
 
+## License
+
+MIT; see [LICENSE](LICENSE).
+
 ## Disclaimer
 
 Not affiliated with or endorsed by RME. RME and ADI-2 are trademarks of their respective owners.
