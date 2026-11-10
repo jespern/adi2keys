@@ -18,6 +18,8 @@ struct MediaKeyPress: Sendable {
 final class KeyTap {
     var handler: (MediaKeyPress) -> Bool = { _ in false }
     private var tap: CFMachPort?
+    private var permissionTimer: Timer?
+    private var permissionChecksLeft = 0
 
     func start() {
         DistributedNotificationCenter.default().addObserver(
@@ -30,8 +32,33 @@ final class KeyTap {
         let prompt = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         if !AXIsProcessTrustedWithOptions(prompt) {
             log.notice("waiting for Accessibility permission")
+            awaitPermission()
         }
         install()
+    }
+
+    /// macOS 27 doesn't reliably post the notification above when access is granted, so while
+    /// waiting at startup, check once a second for up to two minutes. Never runs once the tap exists.
+    private func awaitPermission() {
+        permissionChecksLeft = 120
+        permissionTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkPermission() }
+        }
+    }
+
+    private func checkPermission() {
+        permissionChecksLeft -= 1
+        install()
+        guard tap == nil else { return }
+        if permissionChecksLeft <= 0 {
+            log.notice("still no Accessibility permission; relaunch after granting it")
+            stopAwaitingPermission()
+        }
+    }
+
+    private func stopAwaitingPermission() {
+        permissionTimer?.invalidate()
+        permissionTimer = nil
     }
 
     private func install() {
@@ -46,6 +73,7 @@ final class KeyTap {
             return
         }
         self.tap = tap
+        stopAwaitingPermission()
         CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
         log.notice("volume keys active")
     }

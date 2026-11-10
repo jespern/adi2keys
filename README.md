@@ -19,8 +19,10 @@ Requires "MIDI Control" on in the device's settings (it is, if ADI-2 Remote work
     ./install.sh
 
 This builds `adi2keys.app`, installs it to `~/Applications`, starts it, and registers it as a login
-item. On first launch, grant it Accessibility access in System Settings > Privacy & Security >
-Accessibility. The app is ad-hoc signed, so after a rebuild remove and re-grant that permission.
+item. On first launch, allow it in System Settings > Privacy & Security > Device Control and Data
+Access (called Accessibility before macOS 27). It picks the permission up within a second; no
+relaunch needed. The app is ad-hoc signed, and macOS ties the grant to the exact build, so after a
+rebuild run `tccutil reset Accessibility org.noehr.adi2keys`, relaunch, and allow it again.
 
 ## Settings
 
