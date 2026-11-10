@@ -8,6 +8,12 @@ MainActor.assumeIsolated {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
 
+    // Used by uninstall.sh: only the app itself can remove its login item.
+    if CommandLine.arguments.contains("--unregister-login-item") {
+        do { try SMAppService.mainApp.unregister() } catch { log.error("login item removal failed: \(error)") }
+        exit(0)
+    }
+
     // Start at login when running as an app bundle.
     if Bundle.main.bundleIdentifier != nil {
         do { try SMAppService.mainApp.register() } catch { log.error("login item registration failed: \(error)") }

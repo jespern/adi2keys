@@ -1,47 +1,118 @@
 # adi2keys
 
-Makes the Mac volume keys control the hardware volume of an RME ADI-2 (DAC, Pro, 2/4 Pro) over USB.
+Make the Mac's volume keys control the hardware volume of an RME ADI-2 DAC, ADI-2 Pro or
+ADI-2/4 Pro connected over USB.
 
-The ADI-2 exposes no CoreAudio volume control, so macOS's volume keys do nothing while it is the
-default output. adi2keys catches the volume keys and sends the device's own MIDI SysEx volume and
-mute commands, but only while an ADI-2 is the default output. Otherwise the keys pass through.
+When an ADI-2 is the Mac's output, the volume keys do nothing: the ADI-2 has no volume control
+that macOS can use, so the volume HUD just shows the "unavailable" icon. The ADI-2 does accept
+volume commands over its USB MIDI port; that's how RME's ADI-2 Remote app works. adi2keys is a
+small background app that catches the volume and mute keys while an ADI-2 is the default output
+and sends the ADI-2 the matching volume commands. With any other output selected, the keys work
+as usual.
 
-- Volume up/down: 1 dB steps. Shift+Option: 0.5 dB steps. Option alone still opens Sound settings.
-- Mute toggles the output's mute. Changing the volume unmutes, as macOS does.
-- Volume changes from the front-panel knob or ADI-2 Remote are tracked from the device's own change
-  messages, so presses always step from the real value. ADI-2 Remote can run alongside.
-- The ADI-2's display shows the volume screen on each change. There is no on-screen HUD on the Mac.
+- **Volume up/down:** 1 dB per press, or 0.5 dB with Shift+Option. Option on its own still opens
+  Sound settings.
+- **Mute:** toggles mute on the output. Changing the volume unmutes, as it does on macOS.
+- **Stays in sync:** volume changes from the front-panel knob or ADI-2 Remote arrive as messages
+  from the device, so each key press steps from the real current value. ADI-2 Remote can keep
+  running alongside.
+- **Feedback:** the ADI-2's display shows its volume screen on each change. There is no on-screen
+  HUD on the Mac.
 
-Requires "MIDI Control" on in the device's settings (it is, if ADI-2 Remote works).
+Event-driven throughout: no polling, no dependencies beyond Apple's frameworks.
+
+## Status
+
+Verified with an ADI-2 Pro EX on macOS 27, controlling the line output. The
+ADI-2 DAC and ADI-2/4 Pro use the same protocol and should work, but are untested; reports welcome.
+
+## Requirements
+
+- macOS 27 and Xcode 27 (Swift 6.4), to build from source.
+- **MIDI Control** enabled in the ADI-2's settings. If ADI-2 Remote works, it is.
 
 ## Install
 
-    ./install.sh
+```sh
+git clone https://github.com/jespern/adi2keys.git
+cd adi2keys
+./make-signing-identity.sh   # once per Mac; see Signing below
+./install.sh
+```
 
-This builds `adi2keys.app`, installs it to `~/Applications`, starts it, and registers it as a login
-item. On first launch, allow it in System Settings > Privacy & Security > Device Control and Data
-Access (called Accessibility before macOS 27). It picks the permission up within a second; no
-relaunch needed.
+`install.sh` builds `adi2keys.app`, installs it to `~/Applications`, starts it, and registers it
+to open at login. It has no Dock icon or menu-bar item.
 
-macOS ties that permission to the app's signature. Run `./make-signing-identity.sh` once per Mac
-to create a self-signed certificate in the login keychain; `install.sh` then signs with it, and
-the permission survives rebuilds. Without it builds are signed ad hoc, and after each rebuild you
-need `tccutil reset Accessibility org.noehr.adi2keys`, a relaunch, and a new grant.
+On first launch macOS asks for permission to control the Mac: open **System Settings ›
+Privacy & Security › Device Control and Data Access** and turn on **adi2keys**. The keys work
+within a second of granting it; no relaunch is needed. adi2keys needs this permission to see and
+intercept the volume keys; it doesn't look at any other input.
+
+### Signing
+
+macOS ties that permission to the app's code signature. `make-signing-identity.sh` creates a
+self-signed certificate, "adi2keys local signing", in your login keychain. It stays on your Mac
+and is used only to sign your own builds. `install.sh` signs with it, so the permission survives
+rebuilds and updates.
+
+Without the certificate, builds are signed ad hoc and every rebuild looks like a new app to
+macOS. After each one, run `tccutil reset Accessibility org.noehr.adi2keys`, then grant the
+permission again.
 
 ## Settings
 
-Read on every key press, so changes apply immediately:
+Changes apply on the next key press; there is nothing to restart.
 
-    defaults write org.noehr.adi2keys output line      # line (default), phones12, phones34
-    defaults write org.noehr.adi2keys step 1.0         # dB per press
-    defaults write org.noehr.adi2keys fineStep 0.5     # dB per Shift+Option press
-    defaults write org.noehr.adi2keys maxVolume 6.0    # ceiling in dB for volume up (device max +6.0)
+```sh
+defaults write org.noehr.adi2keys output line      # line (default), phones12, phones34
+defaults write org.noehr.adi2keys step 1.0         # dB per press
+defaults write org.noehr.adi2keys fineStep 0.5     # dB per Shift+Option press
+defaults write org.noehr.adi2keys maxVolume 6.0    # highest volume the keys go to, in dB (device max +6.0)
+```
 
-## Protocol
+`defaults delete org.noehr.adi2keys <key>` restores a default.
 
-RME's MIDI protocol table: https://www.rme-audio.de/downloads/adi2remote_midi_protocol.zip
-(`MIDITable_ADI-2_*.ods`). Volume is output-channel parameter 12 (0.1 dB, 12-bit signed) and mute is
-parameter 15, on channel address 3 (line), 6 (phones 1/2) or 9 (phones 3/4). `Sources/ADI2Protocol`
-implements the encoding; its tests use the byte sequences from RME's examples.
+## Uninstall
 
-Logs: `/usr/bin/log show --last 10m --predicate 'subsystem == "org.noehr.adi2keys"'`
+```sh
+./uninstall.sh
+```
+
+This stops the app, removes it from `~/Applications` and from the login items, and clears its
+permission and settings. The signing certificate is kept; delete "adi2keys local signing" in
+Keychain Access if you don't want it.
+
+## Troubleshooting
+
+The logs show what the app sees:
+
+```sh
+/usr/bin/log show --last 10m --predicate 'subsystem == "org.noehr.adi2keys"'
+```
+
+- **"waiting for Accessibility permission"**: grant the permission as described above.
+- **"no ADI-2 present"**: the ADI-2's MIDI port isn't visible. Check the USB connection and that
+  MIDI Control is on.
+- **Keys do nothing, no errors**: check the ADI-2 is the default output in Sound settings.
+  adi2keys leaves the keys alone for any other output.
+
+## How it works
+
+RME publishes the ADI-2 MIDI protocol as a spreadsheet in
+[adi2remote_midi_protocol.zip](https://www.rme-audio.de/downloads/adi2remote_midi_protocol.zip).
+Parameters travel as SysEx messages in 3-byte containers. Volume is output parameter 12 (a 12-bit
+signed value in 0.1 dB steps, −114.5 to +6.0 dB) and mute is parameter 15, on channel address 3
+(line out), 6 (phones 1/2) or 9 (phones 3/4).
+
+On connect, adi2keys asks the device for all its settings. After that the device sends every
+change on its own, so adi2keys always knows the current volume without asking again.
+[`Sources/ADI2Protocol`](Sources/ADI2Protocol) has the encoding; its tests check it against the
+byte sequences in RME's examples.
+
+```sh
+swift test
+```
+
+## Disclaimer
+
+Not affiliated with or endorsed by RME. RME and ADI-2 are trademarks of their respective owners.
