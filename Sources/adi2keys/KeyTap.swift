@@ -50,7 +50,9 @@ final class KeyTap {
     }
 
     private func install() {
-        guard tap == nil, AXIsProcessTrusted() else { return }
+        // AXIsProcessTrusted() caches its first answer for the life of the process, so a later grant
+        // never shows up through it. CGPreflightPostEventAccess() asks TCC each time, without prompting.
+        guard tap == nil, CGPreflightPostEventAccess() else { return }
         let mask = CGEventMask(1) << NSEvent.EventType.systemDefined.rawValue
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
