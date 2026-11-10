@@ -19,7 +19,15 @@ plutil -insert CFBundleShortVersionString -string 1.0 "$plist"
 plutil -insert LSMinimumSystemVersion -string 27.0 "$plist"
 plutil -insert LSUIElement -bool true "$plist"
 
-codesign --force --sign - "$app"
+# A stable identity keeps the Accessibility grant across rebuilds (see make-signing-identity.sh);
+# ad-hoc signatures change with every build.
+identity="adi2keys local signing"
+if security find-certificate -c "$identity" >/dev/null 2>&1; then
+    codesign --force --sign "$identity" "$app"
+else
+    echo "No \"$identity\" certificate: signing ad hoc. Run ./make-signing-identity.sh to keep permissions across rebuilds."
+    codesign --force --sign - "$app"
+fi
 
 pkill -x adi2keys || true
 mkdir -p ~/Applications
