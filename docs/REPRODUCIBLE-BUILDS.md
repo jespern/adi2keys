@@ -1,9 +1,40 @@
 # Reproducible, properly signed builds
 
-Notes for publishing binary releases that anyone can check against the source, for example so
-shadybin can certify them. Nothing here is wired up yet; releases are source-only for now.
+How to publish binary releases that anyone can check against the source, for example so shadybin
+can certify them. Releases are source-only for now; the scripts in `release/` are ready apart from
+the parts that need an Apple Developer account (marked below).
 
-Measured on 2026-11-10 with Xcode 27.2 (27B52), Swift 6.4.2, on macOS 27.2, arm64.
+Measured on 2026-11-10/11 with Xcode 27.2 (27B52), Swift 6.4.2, on macOS 27.2. macOS 27 runs only on
+Apple silicon, so releases are arm64 only.
+
+## Making a release
+
+```sh
+git tag v0.2.0                     # the version comes from the tag
+release/build.sh                   # dist/adi2keys.app, dist/adi2keys-0.2.0-unsigned.zip, dist/toolchain.txt
+SIGN_IDENTITY="Developer ID Application: Jesper Noehr (TEAMID)" NOTARY_PROFILE=adi2keys release/sign.sh
+TEAM_ID=TEAMID release/verify.sh dist/adi2keys-0.2.0.zip     # rebuilds v0.2.0 elsewhere and compares
+```
+
+Publish `dist/adi2keys-<version>.zip` and the Xcode version from `dist/toolchain.txt`.
+`NOTARY_PROFILE` is a stored notarytool login: `xcrun notarytool store-credentials adi2keys`.
+
+### Tested so far
+
+With a throwaway self-signed certificate in a temporary keychain standing in for the Developer ID
+(hardened runtime on, no timestamp, no notarization):
+
+- `build.sh` from two checkouts at different paths: byte-identical zips, not just binaries.
+- `verify.sh` on a release signed from one path, rebuilt by `git archive` of the ref at another: OK.
+- Wrong `TEAM_ID`: fails ("not signed by team").
+- One byte changed in the executable, then re-signed with the same key: fails ("differs from the
+  rebuild"). A valid signature alone is not enough; the code must match the source.
+
+### Needs the Developer account (untested)
+
+- Signing with a real Developer ID certificate and a secure timestamp (`--timestamp`).
+- Notarization and stapling. `verify.sh` ignores `Contents/CodeResources`, which is where I expect
+  the stapler to put the ticket in an app bundle; confirm with a real stapled release.
 
 ## The approach
 
@@ -42,53 +73,35 @@ swift build -c release --product adi2keys -Xlinker -S -Xlinker -no_adhoc_codesig
 
 ## 2. Signing the release
 
+`release/sign.sh` copies the unsigned app, signs it with hardened runtime and a secure timestamp,
+and notarizes and staples it when `NOTARY_PROFILE` is set:
+
 ```sh
 codesign --force --options runtime --timestamp --sign "Developer ID Application: …" adi2keys.app
 ```
 
-Then notarize. Not yet tested here: it needs a paid Apple Developer account.
-
 ## 3. Verifying a release
 
-1. `codesign --verify --strict --deep adi2keys.app`, and check the `Authority=` chain names the
-   expected Developer ID.
-2. Copy the published executable, run `codesign --remove-signature` on the copy, then normalise it
-   (see below).
-3. Compare it byte for byte with the executable from an unsigned rebuild of the tag (step 1).
-4. Compare the bundle's other files (`Info.plist`) directly. `Contents/_CodeSignature` is part of
-   the signature and is excluded.
+`release/verify.sh` does all of this:
+
+1. `codesign --verify --strict --deep` on the published app, and with `TEAM_ID` set, checks the
+   signature is a Developer ID Application certificate from that team.
+2. Rebuilds the git ref with `release/build.sh`, from `git archive` of the ref (only committed
+   files, nothing from the working tree).
+3. Checks both bundles have the same files, ignoring `Contents/_CodeSignature` (the signature) and
+   `Contents/CodeResources` (where a stapled ticket goes).
+4. Compares each file byte for byte. Executables are compared after `codesign --remove-signature`
+   and normalising (below).
 
 **Normalising.** `--remove-signature` leaves exactly one field different from a never-signed
 binary: the `__LINKEDIT` segment's `vmsize` stays enlarged to fit the removed signature. Unsigned,
-it is the segment's `filesize` rounded up to the 16 KB page size. Resetting it to that value made a
-signed, stripped binary byte-identical to an unsigned rebuild from another checkout path. That was
-checked with a throwaway self-signed certificate, hardened runtime on and no timestamp; a Developer
-ID signature is larger but should leave the same single field.
-
-```python
-# Resets __LINKEDIT vmsize to its unsigned value. 64-bit Mach-O only.
-import struct, sys
-path = sys.argv[1]
-data = bytearray(open(path, 'rb').read())
-magic, _, _, _, ncmds, _, _, _ = struct.unpack_from('<IiiIIIII', data, 0)
-assert magic == 0xFEEDFACF, 'not a 64-bit Mach-O'
-off = 32
-for _ in range(ncmds):
-    cmd, size = struct.unpack_from('<II', data, off)
-    if cmd == 0x19 and data[off+8:off+24].rstrip(b'\0') == b'__LINKEDIT':   # LC_SEGMENT_64
-        filesize = struct.unpack_from('<Q', data, off + 48)[0]
-        struct.pack_into('<Q', data, off + 32, -(-filesize // 0x4000) * 0x4000)
-    off += size
-open(path, 'wb').write(data)
-```
+it is the segment's `filesize` rounded up to the 16 KB page size; `release/normalize-linkedit.swift`
+resets it to that. A Developer ID signature is larger than the test one but should leave the same
+single field.
 
 ## Open questions
 
-- **Developer ID and notarization:** confirm the strip-and-normalise check with a real Developer
-  ID signature and a secure timestamp.
-- **Stapled notarization ticket:** stapling adds data to the bundle. Either verifiers exclude it,
-  or the release isn't stapled and Gatekeeper fetches the ticket online.
-- **Universal binary:** an arm64 + x86_64 build needs the same check on both slices (`lipo`).
+- **Developer ID and notarization:** see "Needs the Developer account" above.
 - **CI runners:** GitHub-hosted runners must offer macOS 27 with Xcode 27.2 for a rebuild there.
 - **shadybin:** supports only Go, Zig and Rust. Swift support would mean the unsigned rebuild
   above, plus a "strip and normalise" step for signed Mach-O files when comparing.

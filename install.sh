@@ -1,23 +1,14 @@
 #!/bin/zsh
-# Builds adi2keys.app, installs it to ~/Applications and (re)starts it.
+# Builds adi2keys.app with release/build.sh, signs it for this Mac, installs it to ~/Applications
+# and (re)starts it.
 set -euo pipefail
 cd "${0:A:h}"
 
-swift build -c release --quiet
+zsh release/build.sh >/dev/null
+rm -rf build
+mkdir -p build
+ditto dist/adi2keys.app build/adi2keys.app
 app=build/adi2keys.app
-rm -rf "$app"
-mkdir -p "$app/Contents/MacOS"
-cp "$(swift build -c release --show-bin-path)/adi2keys" "$app/Contents/MacOS/"
-
-plist="$app/Contents/Info.plist"
-plutil -create xml1 "$plist"
-plutil -insert CFBundleIdentifier -string org.noehr.adi2keys "$plist"
-plutil -insert CFBundleName -string adi2keys "$plist"
-plutil -insert CFBundleExecutable -string adi2keys "$plist"
-plutil -insert CFBundlePackageType -string APPL "$plist"
-plutil -insert CFBundleShortVersionString -string 0.1.0 "$plist"
-plutil -insert LSMinimumSystemVersion -string 27.0 "$plist"
-plutil -insert LSUIElement -bool true "$plist"
 
 # A stable identity keeps the Accessibility grant across rebuilds (see make-signing-identity.sh);
 # ad-hoc signatures change with every build.
