@@ -1,0 +1,58 @@
+# A tag v*.*.* publishes the unsigned app, built reproducibly (release/build.sh), and has
+# shadybin certify it: rebuilt sealed from the reviewed source, compared byte for byte,
+# reviewed, and signed in the registry (https://shadybin.dev/registry/github.com/jespern/adi2keys/).
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions: {}
+
+jobs:
+  release:
+    runs-on: xcode-27
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      # The Xcode shadybin.json names, so the rebuild uses the same compiler.
+      - name: Select Xcode 27.2
+        run: |
+          dir=/Applications/Xcode_27.2.app/Contents/Developer
+          if [ ! -d "$dir" ]; then echo "Xcode 27.2 is not on this runner; it has:"; ls -d /Applications/Xcode_*.app; exit 1; fi
+          echo "DEVELOPER_DIR=$dir" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          VERSION="${TAG#v}" zsh release/build.sh
+          cd dist && shasum -a 256 "adi2keys-${TAG#v}-unsigned.zip" > "adi2keys-${TAG#v}-unsigned.zip.sha256"
+
+      - name: Publish
+        run: |
+          {
+            echo "Unsigned build of $TAG, for checking against the source; macOS will not open it without"
+            echo "approval. To use adi2keys, build it from source: see the README."
+            echo
+            echo "Built with $(cat dist/toolchain.txt)."
+          } > notes.md
+          gh release create "$TAG" dist/adi2keys-*-unsigned.zip dist/adi2keys-*-unsigned.zip.sha256 \
+            --verify-tag --title "adi2keys $TAG" --notes-file notes.md -R "$GITHUB_REPOSITORY"
+
+  certify:
+    needs: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: shadybin/shadybin/.github/workflows/certify.yml@a317b74eb941b7d1966b67b47fab4c2c8d6deb01 # v1.1.0
+    with:
+      tag: ${{ github.ref_name }}
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
