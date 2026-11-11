@@ -102,6 +102,9 @@ single field.
 ## Open questions
 
 - **Developer ID and notarization:** see "Needs the Developer account" above.
-- **CI runners:** GitHub-hosted runners must offer macOS 27 with Xcode 27.2 for a rebuild there.
+- **CI runners:** GitHub's Xcode 27 image runs macOS 27 on Apple silicon, selected with
+  `runs-on: xcode-27` (there is no `macos-27` label; generally available since 2026-10-15). A
+  rebuild there must select the exact Xcode in `dist/toolchain.txt` (`DEVELOPER_DIR` or
+  `xcode-select`), since an image can carry several 27.x versions. Not tried yet: it needs a push.
 - **shadybin:** supports only Go, Zig and Rust. Swift support would mean the unsigned rebuild
   above, plus a "strip and normalise" step for signed Mach-O files when comparing.
