@@ -1,5 +1,7 @@
 # adi2keys
 
+[![shadybin](https://img.shields.io/endpoint?url=https://shadybin.dev/registry/github.com/jespern/adi2keys/badge.json)](https://shadybin.dev/registry/github.com/jespern/adi2keys/)
+
 Make the Mac's volume keys control the hardware volume of an RME ADI-2 DAC, ADI-2 Pro or
 ADI-2/4 Pro connected over USB.
 
@@ -112,6 +114,15 @@ byte sequences in RME's examples.
 ```sh
 swift test
 ```
+
+## Releases
+
+Each release tag publishes an unsigned build, `adi2keys-<version>-unsigned.zip`, which
+[shadybin](https://shadybin.dev) certifies: it rebuilds the tag sealed, offline and from the
+reviewed source alone, checks the result is byte for byte the published zip, and has the code
+reviewed. macOS will not open the unsigned app without approval, so to use adi2keys, build it
+from source as above; the release is there to check against. `release/verify.sh` checks a
+release yourself, and `docs/REPRODUCIBLE-BUILDS.md` explains how the build is made reproducible.
 
 ## License
 
