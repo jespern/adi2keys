@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Checks a published release against its source: verifies the signature, rebuilds the git ref
+# Checks a published release against its source: verifies the signature, if any, rebuilds the git ref
 # unsigned, and compares every file. Signed executables are compared after removing the signature
 # (docs/REPRODUCIBLE-BUILDS.md). Needs the same Xcode version as the release (dist/toolchain.txt).
 #
@@ -21,11 +21,21 @@ published=$tmp/published/adi2keys.app
 version=$(plutil -extract CFBundleShortVersionString raw "$published/Contents/Info.plist")
 ref=${2:-v$version}
 
-# 1. The signature is valid, and from the expected team.
-codesign --verify --strict --deep "$published" || fail "invalid signature"
-details=$(codesign -dvv "$published" 2>&1)
-authority=$(print -r -- "$details" | sed -n 's/^Authority=//p' | head -1)
-if [[ -n ${TEAM_ID:-} ]]; then
+# 1. The signature is valid, and from the expected team. An unsigned release, such as the
+#    ones published for shadybin to certify, has none to check.
+signed=true
+details=$(codesign -dvv "$published" 2>&1 || true)
+if [[ $details == *"not signed at all"* ]]; then
+    signed=false
+    [[ -z ${TEAM_ID:-} ]] || fail "unsigned, but TEAM_ID asks for a Developer ID signature"
+    authority="nobody (unsigned)"
+else
+    codesign --verify --strict --deep "$published" || fail "invalid signature"
+fi
+[[ $signed == true ]] && authority=$(print -r -- "$details" | sed -n 's/^Authority=//p' | head -1)
+if [[ $signed == false ]]; then
+    :
+elif [[ -n ${TEAM_ID:-} ]]; then
     print -r -- "$details" | grep -qx "TeamIdentifier=$TEAM_ID" || fail "not signed by team $TEAM_ID"
     [[ $authority == "Developer ID Application:"* ]] || fail "not a Developer ID Application signature"
 else
@@ -44,7 +54,7 @@ diff <(files "$published") <(files "$built") >&2 || fail "the release and the re
 
 # 4. Same contents; executables compared without their signature.
 for file in ${(f)"$(files "$built")"}; do
-    if file -b "$built/$file" | grep -q Mach-O; then
+    if [[ $signed == true ]] && file -b "$built/$file" | grep -q Mach-O; then
         cp "$published/$file" "$tmp/stripped"
         codesign --remove-signature "$tmp/stripped"
         swift "$repo/release/normalize-linkedit.swift" "$tmp/stripped"
